@@ -3,28 +3,25 @@ import random
 import itertools
 import statistics
 import math
-import pandas as pd # Thư viện xử lý bảng cực mạnh cho web
+import pandas as pd
 
 # ==========================================
-# 1. CORE LOGIC (GIỮ NGUYÊN)
+# 1. CORE LOGIC
 # ==========================================
-
-parts_hp = {
-    "Head":       60000,
-    "Shoulder 1": 30000,
-    "Shoulder 2": 30000,
-    "Leg 1":      40000,
-    "Leg 2":      40000
-}
 
 def simulate_battle(attack_order, rewards_map, hp_map, base_dmg, base_crit):
+    # Convert input stats to logic stats
     crit_rate = base_crit / 100.0
-    crit_dmg_bonus = 1.00
+    crit_dmg_bonus = 1.00 # Base Crit Dmg is +100% (x2 Total)
     dmg_bonus_pct = 0.0
     total_hits = 0
 
+    # Create a local copy of HP map to avoid modifying the original during simulation loops
+    current_hp_map = hp_map.copy()
+
     for part_name in attack_order:
-        current_hp = hp_map[part_name]
+        current_hp = current_hp_map[part_name]
+        
         while current_hp > 0:
             total_hits += 1
             is_crit = random.random() < crit_rate
@@ -35,6 +32,7 @@ def simulate_battle(attack_order, rewards_map, hp_map, base_dmg, base_crit):
                 hit_dmg *= multiplier
             current_hp -= hit_dmg
         
+        # Apply Reward after destroying part
         reward = rewards_map[part_name]
         if reward == "DMG": dmg_bonus_pct += 0.10
         elif reward == "CRIT_DMG": crit_dmg_bonus += 0.50
@@ -48,49 +46,77 @@ def get_percentile(data, percentile):
     return sorted(data)[int(math.ceil((size * percentile) / 100)) - 1]
 
 # ==========================================
-# 2. WEB INTERFACE (STREAMLIT)
+# 2. WEB INTERFACE CONFIG
 # ==========================================
 
-st.set_page_config(page_title="Kraken Optimizer", layout="wide")
+st.set_page_config(page_title="Kraken Optimizer", layout="wide", page_icon="🦑")
 
 st.title("🦑 Mechanical Kraken Strategy Optimizer")
-st.markdown("Công cụ tối ưu hóa chiến thuật tiêu diệt Kraken - Kiss of War")
+st.markdown("Calculate the most efficient attack order based on part rewards and your stats.")
 
-# --- SIDEBAR: CẤU HÌNH ---
+# ==========================================
+# 3. SIDEBAR: SETTINGS & INPUTS
+# ==========================================
+
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.header("⚙️ Configuration")
     
-    st.subheader("1. Player Stats")
-    user_dmg = st.number_input("Base Damage", value=2600, step=100)
-    user_crit = st.number_input("Base Crit Rate (%)", value=20.0, step=1.0)
+    # --- GROUP 1: PLAYER STATS ---
+    with st.expander("1. Player Stats", expanded=True):
+        user_dmg = st.number_input("Base Damage (per hit)", value=2600, step=100)
+        user_crit = st.number_input("Base Crit Rate (%)", value=20.0, step=1.0)
     
-    st.subheader("2. Your Ammo")
-    ammo_limit = st.number_input("Ammo Limit", value=60, step=1)
-    
-    st.subheader("3. Options")
-    top_n = st.slider("Show Top Results", 1, 50, 10)
-    sim_count = st.select_slider("Simulation Precision", options=[500, 1000, 2000, 5000], value=1000)
+    # --- GROUP 2: AMMO LIMIT ---
+    with st.expander("2. Ammo Budget", expanded=True):
+        ammo_limit = st.number_input("Your Ammo Limit", value=60, step=1, help="Used to calculate Win Rate %")
+        win_rate_label = f"Win Rate (w/ {ammo_limit} Ammo)" # Dynamic Label
 
-# --- MAIN SCREEN: NHẬP REWARDS ---
-st.header("🔍 Step 1: Input Part Rewards")
+    # --- GROUP 3: ENEMY HP (EDITABLE) ---
+    with st.expander("3. Enemy HP Config", expanded=True):
+        st.caption("Edit these values if the boss HP changes.")
+        hp_head = st.number_input("Head HP", value=60000, step=1000)
+        hp_sh1  = st.number_input("Shoulder 1 HP", value=30000, step=1000)
+        hp_sh2  = st.number_input("Shoulder 2 HP", value=30000, step=1000)
+        hp_leg1 = st.number_input("Leg 1 HP", value=40000, step=1000)
+        hp_leg2 = st.number_input("Leg 2 HP", value=40000, step=1000)
+
+        # Pack into dictionary
+        parts_hp = {
+            "Head":       hp_head,
+            "Shoulder 1": hp_sh1,
+            "Shoulder 2": hp_sh2,
+            "Leg 1":      hp_leg1,
+            "Leg 2":      hp_leg2
+        }
+
+    # --- GROUP 4: SIMULATION SETTINGS ---
+    with st.expander("4. Advanced Options", expanded=False):
+        top_n = st.slider("Show Top Results", 1, 50, 15)
+        sim_count = st.select_slider("Simulation Precision (Runs per Strategy)", options=[500, 1000, 2000, 5000], value=1000)
+
+# ==========================================
+# 4. MAIN SCREEN: REWARD SELECTION
+# ==========================================
+
+st.subheader("🔍 Step 1: Input Part Rewards")
+st.caption("Select the buff visible on each part of the Kraken.")
+
 col1, col2, col3, col4, col5 = st.columns(5)
 
-reward_options = ["DMG (+10%)", "CRIT_DMG (+50%)", "CRIT_RATE (+20%)"]
-# Mapping lại cho đúng logic code
+reward_display = ["DMG (+10%)", "CRIT_DMG (+50%)", "CRIT_RATE (+20%)"]
 code_map = {"DMG (+10%)": "DMG", "CRIT_DMG (+50%)": "CRIT_DMG", "CRIT_RATE (+20%)": "CRIT_RATE"}
 
 with col1:
-    r_head = st.selectbox("Head", reward_options, index=1)
+    r_head = st.selectbox("Head", reward_display, index=1)
 with col2:
-    r_sh1 = st.selectbox("Shoulder 1", reward_options, index=0)
+    r_sh1 = st.selectbox("Shoulder 1", reward_display, index=0)
 with col3:
-    r_sh2 = st.selectbox("Shoulder 2", reward_options, index=2)
+    r_sh2 = st.selectbox("Shoulder 2", reward_display, index=2)
 with col4:
-    r_leg1 = st.selectbox("Leg 1", reward_options, index=0)
+    r_leg1 = st.selectbox("Leg 1", reward_display, index=0)
 with col5:
-    r_leg2 = st.selectbox("Leg 2", reward_options, index=1)
+    r_leg2 = st.selectbox("Leg 2", reward_display, index=1)
 
-# Tạo map phần thưởng
 rewards_map = {
     "Head": code_map[r_head],
     "Shoulder 1": code_map[r_sh1],
@@ -99,10 +125,14 @@ rewards_map = {
     "Leg 2": code_map[r_leg2]
 }
 
-# --- NÚT CHẠY ---
-if st.button("🚀 RUN ANALYSIS (Start Simulation)", type="primary"):
+# ==========================================
+# 5. EXECUTION & RESULTS
+# ==========================================
+
+st.divider()
+
+if st.button("🚀 ANALYZE STRATEGIES", type="primary", use_container_width=True):
     
-    # Hiển thị thanh tiến trình
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -112,9 +142,8 @@ if st.button("🚀 RUN ANALYSIS (Start Simulation)", type="primary"):
     
     analyzed_results = []
     
-    status_text.text("Simulating battles... Please wait.")
+    status_text.text(f"Simulating {total_scenarios} scenarios x {sim_count} runs... Please wait.")
     
-    # Chạy mô phỏng
     for i, order in enumerate(all_orders):
         results_history = []
         for _ in range(sim_count):
@@ -128,7 +157,7 @@ if st.button("🚀 RUN ANALYSIS (Start Simulation)", type="primary"):
         wins = sum(1 for h in results_history if h <= ammo_limit)
         win_rate = (wins / sim_count) * 100
         
-        # Format lại tên chiến thuật cho đẹp (viết tắt)
+        # Abbreviate names for cleaner table
         short_order = [p.replace("Shoulder", "Sh").replace("Head", "Hd").replace("Leg", "Lg") for p in order]
         order_str = " ➜ ".join(short_order)
         
@@ -137,36 +166,41 @@ if st.button("🚀 RUN ANALYSIS (Start Simulation)", type="primary"):
             "Median Hits": median_hits,
             "Avg Hits": round(avg_hits, 2),
             "Risk (Std)": round(stdev_hits, 2),
-            "Worst 5%": worst_case_95,
-            "Win Rate (%)": round(win_rate, 1)
+            "Worst Case (95%)": worst_case_95,
+            win_rate_label: round(win_rate, 1) # Dynamic column name
         })
         
-        # Cập nhật thanh tiến trình
-        progress_bar.progress((i + 1) / total_scenarios)
+        # Update progress
+        if i % 10 == 0:
+            progress_bar.progress((i + 1) / total_scenarios)
 
-    # Sắp xếp kết quả
-    analyzed_results.sort(key=lambda x: (-x["Win Rate (%)"], x["Median Hits"], x["Avg Hits"]))
+    progress_bar.progress(100)
+    status_text.empty()
     
-    # Cắt lấy Top N
+    # SORTING: Primary = Win Rate (Desc), Secondary = Median (Asc)
+    analyzed_results.sort(key=lambda x: (-x[win_rate_label], x["Median Hits"], x["Avg Hits"]))
+    
+    # Create DataFrame
     final_df = pd.DataFrame(analyzed_results[:top_n])
     
-    # Làm đẹp bảng kết quả
-    st.success("Analysis Complete!")
-    status_text.empty()
-    progress_bar.empty()
+    # --- DISPLAY RESULTS ---
+    st.success("Analysis Complete! Best strategies are listed below.")
     
-    st.subheader(f"🏆 Top {top_n} Best Strategies")
+    st.subheader(f"🏆 Top {top_n} Optimal Strategies")
     
-    # Highlight Win Rate cao nhất
+    # Display Dataframe with Gradient on Win Rate
     st.dataframe(
-        final_df.style.background_gradient(subset=["Win Rate (%)"], cmap="Greens").format({"Win Rate (%)": "{:.1f}%"}),
+        final_df.style.background_gradient(subset=[win_rate_label], cmap="Greens")
+                 .format({win_rate_label: "{:.1f}%", "Avg Hits": "{:.2f}", "Risk (Std)": "{:.2f}"}),
         use_container_width=True,
-        height=500
+        height=600
     )
 
-    st.info("""
-    **Guide:**
-    * **Median Hits:** Kỳ vọng thực tế nhất (50% cơ hội).
-    * **Win Rate:** Tỷ lệ thắng với số đạn bạn nhập bên trái.
-    * **Risk:** Chỉ số càng thấp càng ổn định (ít may rủi).
+    # --- METRIC GUIDE ---
+    st.info(f"""
+    **📊 Metrics Guide:**
+    * **{win_rate_label}:** The probability of completing the stage within your budget of **{ammo_limit}** hits. (Higher is better).
+    * **Median Hits:** Realistic expectation. 50% of attempts will be this number or lower.
+    * **Worst Case (95%):** The "Safety Cap". You are 95% likely to finish within this number of hits.
+    * **Risk (Std):** Lower number means the strategy is more consistent/predictable.
     """)
